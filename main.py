@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.predict import router as predict_router
 from routes.analytics import router as analytics_router
 from routes.face import router as face_router
+from routes.image_predict import router as image_predict_router
 
 app = FastAPI(title="ASD Screening API", version="1.0.0")
 
@@ -21,6 +22,7 @@ app.add_middleware(
 app.include_router(predict_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(face_router, prefix="/api")
+app.include_router(image_predict_router, prefix="/api")
 
 @app.get("/")
 def root():
