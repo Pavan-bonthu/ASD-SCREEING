@@ -1,14 +1,23 @@
-services:
+]services:
   - type: web
     name: asd-screening-api
     runtime: python
     region: oregon
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: >
+      pip install -r requirements.txt &&
+      MPLCONFIGDIR=/tmp/matplotlib python -c "
+      import os; os.makedirs('/tmp/matplotlib', exist_ok=True);
+      import matplotlib; matplotlib.use('Agg');
+      import matplotlib.pyplot as plt;
+      plt.plot([1,2]); plt.savefig('/tmp/test.png');
+      print('Font cache built')
+      "
     startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
     envVars:
+      - key: PORT
+        value: 10000
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: MPLCONFIGDIR
         value: /tmp/matplotlib
-
