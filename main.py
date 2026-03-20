@@ -1,3 +1,9 @@
+import os
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
+os.makedirs("/tmp/matplotlib", exist_ok = True)
+
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.predict import router as predict_router
