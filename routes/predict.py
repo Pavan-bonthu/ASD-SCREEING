@@ -2,12 +2,10 @@ from fastapi import APIRouter
 import joblib
 import pandas as pd
 import numpy as np
-import shap
-import lime
-import lime.lime_tabular
+
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+
 import base64
 import io
 import os
@@ -52,6 +50,8 @@ def fig_to_base64(fig):
     return f"data:image/png;base64,{encoded}"
 
 def get_shap_plot(input_df):
+    import shap
+    import matplotlib.pylot as plt
     shap_values = shap_explainer(input_df)
 
     # Extract values for class 1 (ASD) depending on explainer type
@@ -94,6 +94,9 @@ def get_shap_plot(input_df):
     return fig_to_base64(fig)
 
 def get_lime_plot(input_df, train_df):
+    import lime
+    import lime.lime_tabular
+    import matplotlib.pyplot as plt
     lime_explainer = lime.lime_tabular.LimeTabularExplainer(
         training_data        = train_df.values,
         feature_names        = feature_cols,
