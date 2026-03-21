@@ -21,6 +21,7 @@ train_data_path = "model/saved/train_data.pkl"
 
 # ── Pick the right SHAP explainer based on model type ─────────────────────
 def get_shap_explainer(model):
+    import shap
     try:
         from xgboost import XGBClassifier
         if isinstance(model, (RandomForestClassifier, XGBClassifier)):
@@ -37,7 +38,15 @@ def get_shap_explainer(model):
                else pd.DataFrame(np.zeros((50, len(feature_cols))), columns=feature_cols)
     return shap.KernelExplainer(model.predict_proba, shap.sample(train_bg, 50)), "kernel"
 
-shap_explainer, explainer_type = get_shap_explainer(model)
+shap_explainer = None
+explainer_type = None
+
+def get_explainer():
+    global shap_explainer, explainer_type
+    if shap_explainer is None:
+        print("🔄 Initializing SHAP explainer...")
+        shap_explainer, explainer_type = get_shap_explainer(model)
+    return shap_explainer, explainer_type
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 def fig_to_base64(fig):
@@ -52,6 +61,7 @@ def fig_to_base64(fig):
 def get_shap_plot(input_df):
     import shap
     import matplotlib.pylot as plt
+    explainer, explainer_type = get_explainer()
     shap_values = shap_explainer(input_df)
 
     # Extract values for class 1 (ASD) depending on explainer type
