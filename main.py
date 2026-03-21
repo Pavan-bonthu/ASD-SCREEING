@@ -1,5 +1,6 @@
 import os
 os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
+os.environ["MPLBACKEND"] = "Agg" 
 os.makedirs("/tmp/matplotlib", exist_ok = True)
 
 
