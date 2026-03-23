@@ -20,7 +20,7 @@ app.add_middleware(
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
-        "https://e745-49-205-37-117.ngrok-free.app",],
+        "https://asd-frontend-three.vercel.app",],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
