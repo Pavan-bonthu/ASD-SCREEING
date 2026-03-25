@@ -2,16 +2,19 @@ from pydantic import BaseModel
 from typing import Optional
 
 class ScreeningInput(BaseModel):
-    A1_Score:  int
-    A2_Score:  int
-    A3_Score:  int
-    A4_Score:  int
-    A5_Score:  int
-    A6_Score:  int
-    A7_Score:  int
-    A8_Score:  int
-    A9_Score:  int
-    A10_Score: int
+    # Behavior scores
+    A1:  int
+    A2:  int
+    A3:  int
+    A4:  int
+    A5:  int
+    A6:  int
+    A7:  int
+    A8:  int
+    A9:  int
+    A10: int
+
+    # Demographics
     age:       int
     gender:    int
     jundice:   int
@@ -19,11 +22,25 @@ class ScreeningInput(BaseModel):
     ethnicity: int
     result:    int
 
+    # Doctor scores (from synthetic_asd_dataset.csv)
+    D1:  int
+    D2:  int
+    D3:  int
+    D4:  int
+    D5:  int
+    D6:  int
+    D7:  int
+    D8:  int
+    D9:  int
+    D10: int
+
+
 class PredictionOutput(BaseModel):
     prediction:          str
     asd_probability:     float
     non_asd_probability: float
     risk_level:          str
-    top_features:        dict
+    risk_level_num:      int = 1
+    top_features:        dict[str, float]
     shap_plot:           Optional[str] = None
     lime_plot:           Optional[str] = None

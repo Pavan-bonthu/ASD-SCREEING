@@ -2,82 +2,117 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import json
+
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
-from xgboost import XGBClassifier
 
-# ── 1. Load CSV (skip the malformed first row using header=1) ──────────────
-df = pd.read_csv("model/data/Autism_Data.csv", header=1)
+# ─────────────────────────────────────────────
+# 1. PATH SETUP
+# ─────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+data_path = os.path.join(BASE_DIR, "data", "synthetic_asd_dataset.csv")
 
-# ── 2. Fix column names (first score col is 'ore', id col is '1') ──────────
-df = df.rename(columns={"ore": "A1_Score", "1": "id"})
+# ─────────────────────────────────────────────
+# 2. LOAD DATA
+# ─────────────────────────────────────────────
+print("📥 Loading dataset...")
 
-# ── 3. Drop irrelevant columns ─────────────────────────────────────────────
-df.drop(columns=["id", "age_desc", "relation", "used_app_before"], errors="ignore", inplace=True)
+df = pd.read_csv(data_path)
 
-# ── 4. Handle missing values ───────────────────────────────────────────────
+print("Dataset shape:", df.shape)
+
+# ─────────────────────────────────────────────
+# 3. CLEAN DATA
+# ─────────────────────────────────────────────
 df.replace("?", np.nan, inplace=True)
-df.dropna(inplace=True)
+df.fillna(0, inplace=True)
 
-# ── 5. Encode categorical columns ─────────────────────────────────────────
-# Note: your CSV uses 'jundice' and 'austim' (typos in the dataset — keep as-is)
-cat_cols = ["gender", "ethnicity", "jundice", "austim", "contry_of_res", "Class/ASD"]
-label_encoders = {}
-for col in cat_cols:
-    if col in df.columns:
-        le = LabelEncoder()
-        df[col] = le.fit_transform(df[col].astype(str))
-        label_encoders[col] = le
-# ── 6. Force all columns to numeric (fixes mixed type errors) ──────────────
+# Ensure numeric
 df = df.apply(pd.to_numeric, errors="coerce")
-df.dropna(inplace=True)
+df.fillna(0, inplace=True)
 
-# ── 7. Split features and target ───────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 4. FEATURE ENGINEERING
+# ─────────────────────────────────────────────
+df["behavior_score"] = df[[f"A{i}" for i in range(1, 11)]].sum(axis=1)
+df["doctor_score"]   = df[[f"D{i}" for i in range(1, 11)]].sum(axis=1)
+
+# ─────────────────────────────────────────────
+# 5. TARGET
+# ─────────────────────────────────────────────
+if "Class/ASD" not in df.columns:
+    raise Exception("❌ Target column missing")
+
 X = df.drop(columns=["Class/ASD"])
 y = df["Class/ASD"]
 
-print(f"✅ Dataset ready — {X.shape[0]} samples, {X.shape[1]} features")
-print(f"   Target distribution: {dict(zip(*np.unique(y, return_counts=True)))}\n")
+print("\n🎯 TARGET DISTRIBUTION:")
+print(y.value_counts())
 
+# ─────────────────────────────────────────────
+# 6. TRAIN TEST SPLIT
+# ─────────────────────────────────────────────
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-# ── 7. Train all 3 models, pick the best ───────────────────────────────────
-candidates = {
-    "Logistic Regression": LogisticRegression(max_iter=1000),
-    "Random Forest":        RandomForestClassifier(n_estimators=100, random_state=42),
-    "XGBoost":              XGBClassifier(use_label_encoder=False, eval_metric="logloss", random_state=42),
+# ─────────────────────────────────────────────
+# 7. TRAIN MODEL
+# ─────────────────────────────────────────────
+print("\n🤖 Training model...")
+
+model = RandomForestClassifier(
+    n_estimators=200,
+    class_weight="balanced",
+    random_state=42
+)
+
+model.fit(X_train, y_train)
+
+# ─────────────────────────────────────────────
+# 8. EVALUATE
+# ─────────────────────────────────────────────
+preds = model.predict(X_test)
+acc = accuracy_score(y_test, preds)
+
+print("\n" + "="*40)
+print(f"🎯 Accuracy: {acc*100:.2f}%")
+print(classification_report(y_test, preds, target_names=["Non-ASD", "ASD"]))
+print("="*40)
+
+# ─────────────────────────────────────────────
+# 9. SAVE MODEL
+# ─────────────────────────────────────────────
+save_dir = os.path.join(BASE_DIR, "saved")
+os.makedirs(save_dir, exist_ok=True)
+
+joblib.dump(model, os.path.join(save_dir, "model.pkl"))
+joblib.dump(list(X.columns), os.path.join(save_dir, "feature_cols.pkl"))
+joblib.dump(acc, os.path.join(save_dir, "accuracy.pkl"))
+
+X_train.to_pickle(os.path.join(save_dir, "train_data.pkl"))
+
+model_info = {
+    "model": "RandomForest",
+    "accuracy": float(acc),
+    "features": list(X.columns)
 }
 
-best_model, best_acc, best_name = None, 0, ""
+with open(os.path.join(save_dir, "model_info.json"), "w") as f:
+    json.dump(model_info, f, indent=4)
 
-for name, model in candidates.items():
-    model.fit(X_train, y_train)
-    preds = model.predict(X_test)
-    acc = accuracy_score(y_test, preds)
-    print(f"{'─'*40}")
-    print(f"  {name}: {acc*100:.2f}% accuracy")
-    print(classification_report(y_test, preds, target_names=["Non-ASD", "ASD"]))
-    if acc > best_acc:
-        best_acc, best_model, best_name = acc, model, name
+print("\n💾 Model saved successfully!")
 
-# ── 8. Save best model and metadata ───────────────────────────────────────
-os.makedirs("model/saved", exist_ok=True)
-joblib.dump(best_model,           "model/saved/model.pkl")
-joblib.dump(list(X.columns),      "model/saved/feature_cols.pkl")
-joblib.dump(best_acc,             "model/saved/accuracy.pkl")
-joblib.dump(label_encoders,       "model/saved/label_encoders.pkl")
+# ─────────────────────────────────────────────
+# 10. TEST SAMPLE
+# ─────────────────────────────────────────────
+sample = X_test.iloc[0:1]
 
-print(f"\n{'='*40}")
-print(f"🏆 Best Model : {best_name}")
-print(f"   Accuracy   : {best_acc*100:.2f}%")
-print(f"   Saved to   : model/saved/")
-print(f"{'='*40}")
+pred = model.predict(sample)[0]
+prob = model.predict_proba(sample)[0][1]
 
-# Save training data for LIME background
-X_train.to_pickle("model/saved/train_data.pkl")
-print("✅ Training data saved for LIME explainer")
+print("\n🧪 TEST SAMPLE:")
+print("Prediction:", "ASD" if pred == 1 else "Non-ASD")
+print("Confidence:", f"{prob*100:.2f}%")

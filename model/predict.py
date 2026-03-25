@@ -11,42 +11,54 @@ import matplotlib.pyplot as plt
 import base64
 import io
 import os
+
 from schemas import ScreeningInput, PredictionOutput
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
 router = APIRouter()
 
-model        = joblib.load("model/saved/model.pkl")
-feature_cols = joblib.load("model/saved/feature_cols.pkl")
-train_data_path = "model/saved/train_data.pkl"
+# ─────────────────────────────────────────────
+# LOAD MODEL
+# ─────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ── Lazy load — explainer created on first request, not at startup ─────────
-_shap_explainer  = None
-_explainer_type  = None
-_train_df_cache  = None
+model = joblib.load(os.path.join(BASE_DIR, "saved", "model.pkl"))
+feature_cols = joblib.load(os.path.join(BASE_DIR, "saved", "feature_cols.pkl"))
+train_data_path = os.path.join(BASE_DIR, "saved", "train_data.pkl")
+
+# ─────────────────────────────────────────────
+# EXPLAINER CACHE
+# ─────────────────────────────────────────────
+_shap_explainer = None
+_explainer_type = None
+_train_df_cache = None
+
 
 def get_train_df():
     global _train_df_cache
-    if _train_df_cache is None and os.path.exists(train_data_path):
-        try:
-            _train_df_cache = pd.read_pickle(train_data_path)
-        except Exception as e:
-            print(f"⚠ Could not load train_data.pkl: {e}")
-            # fallback — create dummy background from zeros
-            _train_df_cache = pd.DataFrame(
-                np.zeros((50, len(feature_cols))),
-                columns=feature_cols
-            )
-    elif _train_df_cache is None:
+
+    if _train_df_cache is None:
+        if os.path.exists(train_data_path):
+            try:
+                _train_df_cache = pd.read_pickle(train_data_path)
+            except Exception as e:
+                print(f"⚠ Could not load train_data.pkl: {e}")
+        else:
+            _train_df_cache = None
+
+    if _train_df_cache is None:
         _train_df_cache = pd.DataFrame(
             np.zeros((50, len(feature_cols))),
             columns=feature_cols
         )
+
     return _train_df_cache
+
 
 def get_explainer():
     global _shap_explainer, _explainer_type
+
     if _shap_explainer is not None:
         return _shap_explainer, _explainer_type
 
@@ -55,7 +67,6 @@ def get_explainer():
         if isinstance(model, (RandomForestClassifier, XGBClassifier)):
             _shap_explainer = shap.TreeExplainer(model)
             _explainer_type = "tree"
-            print("✅ SHAP TreeExplainer ready")
             return _shap_explainer, _explainer_type
     except Exception:
         pass
@@ -63,22 +74,19 @@ def get_explainer():
     if isinstance(model, LogisticRegression):
         try:
             train_df = get_train_df()
-            masker   = shap.maskers.Independent(train_df)
+            masker = shap.maskers.Independent(train_df)
             _shap_explainer = shap.LinearExplainer(model, masker)
             _explainer_type = "linear"
-            print("✅ SHAP LinearExplainer ready")
             return _shap_explainer, _explainer_type
         except Exception as e:
             print(f"⚠ LinearExplainer failed: {e}")
 
-    # Universal fallback
     try:
         train_df = get_train_df()
         _shap_explainer = shap.KernelExplainer(
             model.predict_proba, shap.sample(train_df, 50)
         )
         _explainer_type = "kernel"
-        print("✅ SHAP KernelExplainer ready (fallback)")
     except Exception as e:
         print(f"⚠ KernelExplainer failed: {e}")
         _shap_explainer = None
@@ -86,16 +94,23 @@ def get_explainer():
 
     return _shap_explainer, _explainer_type
 
-# ── Plot helpers ───────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
+# FIG → BASE64
+# ─────────────────────────────────────────────
 def fig_to_base64(fig):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight",
-                facecolor="#060a0f", edgecolor="none", dpi=120)
+                facecolor="#060a0f", dpi=120)
     buf.seek(0)
     encoded = base64.b64encode(buf.read()).decode("utf-8")
     plt.close(fig)
     return f"data:image/png;base64,{encoded}"
 
+
+# ─────────────────────────────────────────────
+# SHAP
+# ─────────────────────────────────────────────
 def get_shap_plot(input_df):
     explainer, explainer_type = get_explainer()
     if explainer is None:
@@ -103,104 +118,131 @@ def get_shap_plot(input_df):
 
     shap_values = explainer(input_df)
 
-    if explainer_type == "tree":
-        vals = shap_values[:, :, 1].values[0] if len(np.array(shap_values).shape) == 3 else shap_values.values[0]
-    elif explainer_type == "linear":
-        raw  = shap_values.values
-        vals = raw[0, :, 1] if len(raw.shape) == 3 else raw[0]
-    else:
-        vals = np.array(shap_values)[1][0] if isinstance(shap_values, list) else shap_values.values[0]
+    try:
+        shap_values = explainer(input_df)
+        if explainer_type == "tree":
+            vals = shap_values[:, :, 1].values[0] if len(np.array(shap_values).shape) == 3 else shap_values.values[0]
+        elif explainer_type == "linear":
+            raw = shap_values.values
+            vals = raw[0, :, 1] if len(raw.shape) == 3 else raw[0]
+        else:
+            vals = np.array(shap_values)[1][0] if isinstance(shap_values, list) else shap_values.values[0]
+    except Exception:
+        return None
 
-    feats      = list(feature_cols)
-    colors     = ["#ef4444" if v > 0 else "#00ffc8" for v in vals]
+    feats = list(feature_cols)
     sorted_idx = np.argsort(np.abs(vals))[-8:]
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    fig.patch.set_facecolor("#060a0f")
-    ax.set_facecolor("#0d1117")
-    ax.barh([feats[i] for i in sorted_idx], [vals[i] for i in sorted_idx],
-            color=[colors[i] for i in sorted_idx], height=0.6)
-    ax.axvline(0, color="#334155", linewidth=0.8)
-    ax.set_title("SHAP — Feature Impact on Prediction", color="#00ffc8", fontsize=11, pad=10)
-    ax.tick_params(colors="#94a3b8", labelsize=9)
-    ax.spines[:].set_visible(False)
-    ax.set_xlabel("SHAP Value  (red = ASD, cyan = Non-ASD)", color="#64748b", fontsize=8)
+    ax.barh([feats[i] for i in sorted_idx],
+            [float(vals[i]) for i in sorted_idx])
+
+    ax.axvline(0)
+    ax.set_title("SHAP — Feature Impact")
+
     return fig_to_base64(fig)
 
-def get_lime_plot(input_df):
-    train_df = get_train_df()
-    try:
-        lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-            training_data        = train_df.values,
-            feature_names        = feature_cols,
-            class_names          = ["Non-ASD", "ASD"],
-            mode                 = "classification",
-            discretize_continuous= True,
-            random_state         = 42,
-        )
-        explanation = lime_explainer.explain_instance(
-            input_df.values[0], model.predict_proba,
-            num_features=8, top_labels=1,
-        )
-        label    = list(explanation.as_map().keys())[0]
-        exp_list = explanation.as_list(label=label)
-        features = [e[0] for e in exp_list]
-        values   = [e[1] for e in exp_list]
-        colors   = ["#ef4444" if v > 0 else "#a78bfa" for v in values]
 
-        fig, ax = plt.subplots(figsize=(8, 4))
-        fig.patch.set_facecolor("#060a0f")
-        ax.set_facecolor("#0d1117")
-        ax.barh(features, values, color=colors, height=0.6)
-        ax.axvline(0, color="#334155", linewidth=0.8)
-        ax.set_title("LIME — Local Explanation", color="#a78bfa", fontsize=11, pad=10)
-        ax.tick_params(colors="#94a3b8", labelsize=9)
-        ax.spines[:].set_visible(False)
-        ax.set_xlabel("LIME Weight  (red = ASD, purple = Non-ASD)", color="#64748b", fontsize=8)
+# ─────────────────────────────────────────────
+# LIME
+# ─────────────────────────────────────────────
+def get_lime_plot(input_df):
+    try:
+        
+        train_df = get_train_df()
+
+        explainer = lime.lime_tabular.LimeTabularExplainer(
+            training_data=train_df.values,
+            feature_names=feature_cols,
+            class_names=["Non-ASD", "ASD"],
+            mode="classification"
+        )
+
+        explanation = explainer.explain_instance(
+            input_df.values[0],
+            model.predict_proba,
+            num_features=8
+        )
+
+        fig = explanation.as_pyplot_figure()
         return fig_to_base64(fig)
+
     except Exception as e:
-        print(f"⚠ LIME error: {e}")
+        print("⚠ LIME error:", e)
         return None
 
-# ── Main predict endpoint ──────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
+# 🚀 MAIN API
+# ─────────────────────────────────────────────
 @router.post("/predict", response_model=PredictionOutput)
 def predict(data: ScreeningInput):
+
     input_dict = data.dict()
+
+    # YES / NO → numeric
+    for k, v in input_dict.items():
+        if isinstance(v, str):
+            if v.lower() == "yes":
+                input_dict[k] = 1
+            elif v.lower() == "no":
+                input_dict[k] = 0
+
+    # Feature engineering
+    behavior_score = sum(input_dict.get(f"A{i}", 0) for i in range(1, 11))
+    doctor_score = sum(input_dict.get(f"D{i}", 0) for i in range(1, 11))
+
+    input_dict["behavior_score"] = behavior_score
+    input_dict["doctor_score"] = doctor_score
+
     df = pd.DataFrame([input_dict]).reindex(columns=feature_cols, fill_value=0)
 
-    pred     = model.predict(df)[0]
-    proba    = model.predict_proba(df)[0]
-    asd_prob = float(proba[1])
+    pred = int(model.predict(df)[0])
+    proba = model.predict_proba(df)[0]
+    proba = [float(x) for x in proba]
 
-    if asd_prob >= 0.7:   risk = "High"
-    elif asd_prob >= 0.4: risk = "Medium"
-    else:                 risk = "Low"
+    asd_prob = proba[1]
+    non_asd_prob = proba[0]
 
+    # Risk
+    if asd_prob >= 0.65:
+        risk = "High"
+        risk_level_num = 3
+    elif asd_prob >= 0.30:
+        risk = "Medium"
+        risk_level_num = 2
+    else:
+        risk = "Low"
+        risk_level_num = 1
+
+    # Feature importance
     top_features = {}
     if hasattr(model, "feature_importances_"):
-        importances  = dict(zip(feature_cols, model.feature_importances_))
-        top_features = dict(
-            sorted(importances.items(), key=lambda x: x[1], reverse=True)[:6]
-        )
+        importances = dict(zip(feature_cols, model.feature_importances_))
+        top_features = {
+            str(k): float(v)
+            for k, v in sorted(importances.items(), key=lambda x: x[1], reverse=True)[:6]
+        }
 
-    shap_plot = None
-    try:
-        shap_plot = get_shap_plot(df)
-    except Exception as e:
-        print(f"⚠ SHAP error: {e}")
-
-    lime_plot = None
-    try:
-        lime_plot = get_lime_plot(df)
-    except Exception as e:
-        print(f"⚠ LIME error: {e}")
+    # SHAP / LIME
+    shap_plot = get_shap_plot(df)
+    lime_plot = get_lime_plot(df)
+    print("DEBUG TYPES:")
+    print(type(pred))
+    print(type(asd_prob))
+    print(type(non_asd_prob))
 
     return PredictionOutput(
-        prediction          = "ASD" if pred == 1 else "Non-ASD",
-        asd_probability     = round(asd_prob * 100, 2),
-        non_asd_probability = round(float(proba[0]) * 100, 2),
-        risk_level          = risk,
-        top_features        = top_features,
-        shap_plot           = shap_plot,
-        lime_plot           = lime_plot,
+        prediction="ASD" if pred == 1 else "Non-ASD",
+        asd_probability=float(round(asd_prob * 100, 2)),
+        non_asd_probability=float(round(non_asd_prob * 100, 2)),
+        risk_level=str(risk),
+        risk_level_num=int(risk_level_num) if 'risk_level_num' in locals() else 1,
+        top_features=top_features,
+        shap_plot=str(shap_plot) if shap_plot else None,
+        lime_plot=str(lime_plot) if lime_plot else None,
+        
+    
     )
+    
+   

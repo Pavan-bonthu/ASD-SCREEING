@@ -1,0 +1,33 @@
+{
+    "model": "RandomForest",
+    "accuracy": 1.0,
+    "features": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7",
+        "A8",
+        "A9",
+        "A10",
+        "D1",
+        "D2",
+        "D3",
+        "D4",
+        "D5",
+        "D6",
+        "D7",
+        "D8",
+        "D9",
+        "D10",
+        "age",
+        "gender",
+        "jundice",
+        "austim",
+        "ethnicity",
+        "behavior_score",
+        "doctor_score"
+    ]
+}

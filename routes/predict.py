@@ -140,49 +140,91 @@ def get_lime_plot(input_df, train_df):
               color="#64748b", fontsize=8) 
     return fig_to_base64(fig)
 
-# ── Main predict endpoint ──────────────────────────────────────────────────
 @router.post("/predict", response_model=PredictionOutput)
 def predict(data: ScreeningInput):
+
+    # ── 1. Convert input to dict ──
     input_dict = data.dict()
+
+    
+
+    # ── 3. Convert YES/NO → 1/0 ──
+    for k, v in input_dict.items():
+        if isinstance(v, str):
+            if v.lower() == "yes":
+                input_dict[k] = 1
+            elif v.lower() == "no":
+                input_dict[k] = 0
+
+    # ── 4. Feature engineering ──
+    input_dict["behavior_score"] = sum(
+        input_dict.get(f"A{i}", 0) for i in range(1, 11)
+    )
+    input_dict["doctor_score"] = sum(
+        input_dict.get(f"D{i}", 0) for i in range(1, 11)
+    )
+
+    # ── 5. Create dataframe correctly ──
     df = pd.DataFrame([input_dict]).reindex(columns=feature_cols, fill_value=0)
 
-    pred     = model.predict(df)[0]
-    proba    = model.predict_proba(df)[0]
+    # 🔍 DEBUG (you can remove later)
+    print("INPUT DICT:", input_dict)
+    print("MODEL INPUT DF:")
+    print(df)
+
+    # ── 6. Prediction ──
+    pred = int(model.predict(df)[0])
+    proba = model.predict_proba(df)[0]
+
     asd_prob = float(proba[1])
+    non_asd_prob = float(proba[0])
 
-    if asd_prob >= 0.7:   risk = "High"
-    elif asd_prob >= 0.4: risk = "Medium"
-    else:                 risk = "Low"
+    print("ASD PROB:", asd_prob)
 
+    # ── 7. Risk calculation (better thresholds) ──
+    if asd_prob >= 0.55:
+        risk = "High"
+        risk_level_num = 3
+    elif asd_prob >= 0.25:
+        risk = "Medium"
+        risk_level_num = 2
+    else:
+        risk = "Low"
+        risk_level_num = 1
+
+    # ── 8. Feature importance ──
     top_features = {}
     if hasattr(model, "feature_importances_"):
-        importances  = dict(zip(feature_cols, model.feature_importances_))
-        top_features = dict(
-            sorted(importances.items(), key=lambda x: x[1], reverse=True)[:6]
-        )
+        importances = dict(zip(feature_cols, model.feature_importances_))
+        top_features = {
+            str(k): float(v)
+            for k, v in sorted(importances.items(), key=lambda x: x[1], reverse=True)[:6]
+        }
 
-    # SHAP
+    # ── 9. SHAP / LIME (safe) ──
     shap_plot = None
+    lime_plot = None
+
     try:
         shap_plot = get_shap_plot(df)
     except Exception as e:
-        print(f"⚠ SHAP error: {e}")
+        print("⚠ SHAP error:", e)
 
-    # LIME
-    lime_plot = None
     try:
         if os.path.exists(train_data_path):
-            train_df  = pd.read_pickle(train_data_path)
+            train_df = pd.read_pickle(train_data_path)
             lime_plot = get_lime_plot(df, train_df)
     except Exception as e:
-        print(f"⚠ LIME error: {e}")
+        print("⚠ LIME error:", e)
 
+    # ── 10. Final response ──
     return PredictionOutput(
-        prediction          = "ASD" if pred == 1 else "Non-ASD",
-        asd_probability     = round(asd_prob * 100, 2),
-        non_asd_probability = round(float(proba[0]) * 100, 2),
-        risk_level          = risk,
-        top_features        = top_features,
-        shap_plot           = shap_plot,
-        lime_plot           = lime_plot,
+        prediction="ASD" if pred == 1 else "Non-ASD",
+        asd_probability=round(asd_prob * 100, 2),
+        non_asd_probability=round(non_asd_prob * 100, 2),
+        risk_level=risk,
+        risk_level_num=risk_level_num,
+        top_features=top_features,
+        shap_plot=shap_plot,
+        lime_plot=lime_plot,
     )
