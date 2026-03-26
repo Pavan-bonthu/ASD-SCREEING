@@ -55,7 +55,6 @@ def get_train_df():
 
     return _train_df_cache
 
-
 def get_explainer():
     global _shap_explainer, _explainer_type
 
@@ -63,38 +62,15 @@ def get_explainer():
         return _shap_explainer, _explainer_type
 
     try:
-        from xgboost import XGBClassifier
-        if isinstance(model, (RandomForestClassifier, XGBClassifier)):
-            _shap_explainer = shap.TreeExplainer(model)
-            _explainer_type = "tree"
-            return _shap_explainer, _explainer_type
-    except Exception:
-        pass
+        # Works perfectly for RandomForest, XGBoost, DecisionTree
+        _shap_explainer = shap.TreeExplainer(model)
+        _explainer_type = "tree"
+        print("✅ Using TreeExplainer")
+        return _shap_explainer, _explainer_type
 
-    if isinstance(model, LogisticRegression):
-        try:
-            train_df = get_train_df()
-            masker = shap.maskers.Independent(train_df)
-            _shap_explainer = shap.LinearExplainer(model, masker)
-            _explainer_type = "linear"
-            return _shap_explainer, _explainer_type
-        except Exception as e:
-            print(f"⚠ LinearExplainer failed: {e}")
-
-    try:
-        train_df = get_train_df()
-        _shap_explainer = shap.KernelExplainer(
-            model.predict_proba, shap.sample(train_df, 50)
-        )
-        _explainer_type = "kernel"
     except Exception as e:
-        print(f"⚠ KernelExplainer failed: {e}")
-        _shap_explainer = None
-        _explainer_type = None
-
-    return _shap_explainer, _explainer_type
-
-
+        print("❌ SHAP TreeExplainer failed:", e)
+        return None, None
 # ─────────────────────────────────────────────
 # FIG → BASE64
 # ─────────────────────────────────────────────
@@ -120,15 +96,22 @@ def get_shap_plot(input_df):
 
     try:
         shap_values = explainer(input_df)
-        if explainer_type == "tree":
-            vals = shap_values[:, :, 1].values[0] if len(np.array(shap_values).shape) == 3 else shap_values.values[0]
-        elif explainer_type == "linear":
-            raw = shap_values.values
-            vals = raw[0, :, 1] if len(raw.shape) == 3 else raw[0]
+
+    # Handle different SHAP formats safely
+        if hasattr(shap_values, "values"):
+            vals = shap_values.values
         else:
-            vals = np.array(shap_values)[1][0] if isinstance(shap_values, list) else shap_values.values[0]
-    except Exception:
-        return None
+            vals = np.array(shap_values)
+
+    # If multi-class → pick ASD class (index 1)
+        if len(vals.shape) == 3:
+           vals = vals[0, :, 1]
+        else:
+           vals = vals[0]
+
+    except Exception as e:
+        print("❌ SHAP VALUE ERROR:", e)
+    return None
 
     feats = list(feature_cols)
     sorted_idx = np.argsort(np.abs(vals))[-8:]

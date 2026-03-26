@@ -5,6 +5,7 @@ import numpy as np
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 import base64
 import io
@@ -60,7 +61,7 @@ def fig_to_base64(fig):
 
 def get_shap_plot(input_df):
     import shap
-    import matplotlib.pylot as plt
+    import matplotlib.pyplot as plt
     explainer, explainer_type = get_explainer()
     shap_values = shap_explainer(input_df)
 
@@ -152,9 +153,9 @@ def predict(data: ScreeningInput):
     for k, v in input_dict.items():
         if isinstance(v, str):
             if v.lower() == "yes":
-                input_dict[k] = 1
-            elif v.lower() == "no":
                 input_dict[k] = 0
+            elif v.lower() == "no":
+                input_dict[k] = 1
 
     # ── 4. Feature engineering ──
     input_dict["behavior_score"] = sum(
