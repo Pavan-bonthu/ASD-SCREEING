@@ -1,0 +1,9 @@
+{
+  "classes": [
+    "Autistic",
+    "Non_Autistic"
+  ],
+  "accuracy": 81.27,
+  "img_size": 224,
+  "model": "MobileNetV2"
+}

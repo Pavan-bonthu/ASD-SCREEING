@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 import os, json, shutil
 
 # ── Config ──────────────────────────────────────────────────────────────────
-BASE_DIR  = "model/image_data"
+BASE_DIR  = "image_data"
 SAVE_DIR  = "model/saved"
 IMG_SIZE  = 224
-BATCH     = 16
+BATCH     = 8
 EPOCHS    = 20
 DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -34,12 +34,10 @@ for root, dirs, files in os.walk(BASE_DIR):
 print(f"   Removed {removed} corrupt files\n")
 
 # ── Transforms ──────────────────────────────────────────────────────────────
+
 train_tf = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(15),
-    transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2),
-    transforms.RandomGrayscale(p=0.05),
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406],
                          [0.229, 0.224, 0.225]),
