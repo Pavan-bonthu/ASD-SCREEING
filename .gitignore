@@ -5,5 +5,4 @@ __pycache__/
 model/image_data/
 model/Autistic/
 model/Non-Autistic/
-model/data/
 .env
